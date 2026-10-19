@@ -1,8 +1,8 @@
 # Case (work in progress)
 
-OpenSCAD parts for a 3D-printed case. This is a separate project from the monitor above: it is for the
-2.8" **ES3C28P** ESP32-S3 touch display module (86 x 50 mm board, 78 x 42 mm mounting holes), not the
-display the dashboard firmware drives. Every board dimension comes from the vendor's specification
+OpenSCAD parts for a 3D-printed case. It is for the 2.8" **ES3C28P** ESP32-S3 touch display module (86 x 50 mm board,
+78 x 42 mm mounting holes), the board of the [`es3c28p-320x240`](../firmware/es3c28p-320x240) firmware
+variant. It does not fit the DevKitC variant. Every board dimension comes from the vendor's specification
 PDF, page 13, and sits in a named variable at the top of the file.
 
 | File | What it is |

@@ -1,11 +1,23 @@
 # Local AI Monitor
 
-A small touchscreen dashboard for a home AI server. An ESP32-S3 with a 480x320 colour touchscreen shows live
+A small touchscreen dashboard for a home AI server. An ESP32-S3 touchscreen shows live
 GPU and LLM stats from an NVIDIA Tesla P100 running `llama-server`, and lets you change fan profiles by
 touch. A tiny Python feeder on the server sends the data over USB serial.
 
 It runs 24/7 on my AI box (Tesla P100 16 GB, llama.cpp). It is written for that machine, so expect to
 adapt the details (see [Adapting it](#adapting-it-to-your-machine)).
+
+## Two hardware variants
+
+The server side is the same for both. Only the firmware differs.
+
+| Variant | Board | Display | Status |
+|---|---|---|---|
+| [`esp32-s3-st7796-480x320`](firmware/esp32-s3-st7796-480x320) | ESP32-S3 DevKitC-1 with a separate display | 480x320 ST7796, FT6336 touch, UART bridge USB | In daily use. |
+| [`es3c28p-320x240`](firmware/es3c28p-320x240) | LCDWIKI ES3C28P, all-in-one 2.8" board | 320x240 ILI9341V, FT6336 touch, native USB | Compiles. **Not yet tested on a real board.** |
+
+The second variant is a re-layout of the same three pages for the smaller screen. A 3D-printable case
+for it is in progress in [`case/`](case).
 
 ```
  AI server (Linux)                                        ESP32-S3 + 480x320 TFT
@@ -21,7 +33,7 @@ adapt the details (see [Adapting it](#adapting-it-to-your-machine)).
 Three pages, switched by tapping the tab bar or swiping:
 
 - **GPU**: utilisation, temperature, VRAM and power gauges, SM and memory clocks, and a scrolling
-  history graph of utilisation and temperature (about 3.7 minutes at 2 samples per second). A
+  history graph of utilisation and temperature (2 samples per second: 3.7 minutes on the 480x320 variant, 2.4 on the 320x240 one). A
   LIVE / NO DATA badge shows whether the feed is alive.
 - **LLM**: server state (offline, idle, reading prompt, generating), context fill, live and average
   generation and prompt speed in tokens per second, total tokens generated and processed, and server
@@ -36,7 +48,9 @@ is no flicker.
 
 | Path | What it is |
 |---|---|
-| `firmware/` | ESP32-S3 firmware (PlatformIO, Arduino, TFT_eSPI): UI, touch, serial protocol. |
+| `firmware/esp32-s3-st7796-480x320/` | Firmware for the DevKitC + 480x320 display (PlatformIO, Arduino, TFT_eSPI). |
+| `firmware/es3c28p-320x240/` | Firmware for the LCDWIKI ES3C28P all-in-one board. |
+| `firmware/tools/make_fonts.py` | Generates the smooth fonts header both variants use. |
 | `host/p100_feed.py` | Feeder service: GPU stats, llama-server stats and fan status to the ESP, and its fan commands back. |
 | `host/fanctl.py` | Fan controller daemon with temperature curves and GPU-aware safety limits. |
 | `host/install_*.sh` | Installers that set up the two services under systemd. |
@@ -45,11 +59,11 @@ is no flicker.
 
 ## Hardware
 
-- ESP32-S3 board with 16 MB flash and PSRAM (`esp32-s3-devkitc-1` in PlatformIO).
-- 480x320 ST7796 SPI display with an FT6336 capacitive touch controller.
-- A USB cable from the board to the server (shows up as `/dev/ttyACM0`).
+Both variants need an ESP32-S3 with 16 MB flash and PSRAM, a display with an FT6336 capacitive touch
+controller, and a USB cable to the server (shows up as `/dev/ttyACM0`).
 
-Pins (set in `firmware/platformio.ini` and `firmware/src/main.cpp`):
+**Variant `esp32-s3-st7796-480x320`:** an `esp32-s3-devkitc-1` and a 480x320 ST7796 SPI display. Pins
+(set in `firmware/esp32-s3-st7796-480x320/platformio.ini` and `src/main.cpp`):
 
 | Signal | GPIO | | Signal | GPIO |
 |---|---|---|---|---|
@@ -59,15 +73,22 @@ Pins (set in `firmware/platformio.ini` and `firmware/src/main.cpp`):
 | TFT CS | 10 | | Backlight | 5 |
 | TFT DC | 14 | | TFT RST | 4 |
 
+**Variant `es3c28p-320x240`:** the [LCDWIKI ES3C28P](https://www.lcdwiki.com) board has everything on
+one PCB, so there is no wiring. Its pins come from the vendor specification and are listed in
+`firmware/es3c28p-320x240/platformio.ini` and `src/main.cpp`. Its USB-C port is the ESP32-S3's own
+USB, so there is no UART chip and the port may re-enumerate when the board resets.
+
 ## Setup
 
 **1. Flash the firmware** (needs [PlatformIO](https://platformio.org/); your user must be in the
-`dialout` group to use the serial port):
+`dialout` group to use the serial port). Pick the folder for your hardware:
 
 ```bash
-cd firmware
+cd firmware/esp32-s3-st7796-480x320     # or: cd firmware/es3c28p-320x240
 pio run -t upload
 ```
+
+On the ES3C28P the first upload may need download mode: hold BOOT, press RESET, release BOOT.
 
 **2. Install the feeder on the server** (needs `python3`, `pyserial` and `nvidia-smi`):
 
@@ -131,11 +152,15 @@ Whatever the profile or manual setting, these always apply:
 - **Fans:** `fanctl.py` is written for my board (Nuvoton `nct6775` PWM headers, one RX 580, and a
   40 mm fan duct on the GPU). The fan names, headers and curves near the top of the file are specific
   to it. The socket group is set to `local1` in `fanctl.py`; change `SOCK_GROUP` to your user.
-- **Display:** other ST7796 setups need new pins in `platformio.ini`.
-- **Fonts:** `firmware/include/fonts.h` is generated by `firmware/tools/make_fonts.py`.
+- **Display:** other displays need new pins and a new driver in `platformio.ini`, and probably a new
+  layout. The two variants are good starting points.
+- **Fonts:** each variant's `include/fonts.h` is generated by `firmware/tools/make_fonts.py`
+  (the ES3C28P one with `--val 22 --big 38`).
 
 ## Known limits
 
+- The ES3C28P variant has only been compiled. Display colours, rotation and touch direction are the
+  things most likely to need a one-line change; the knobs are listed in its README.
 - If the ESP is unplugged the feeder keeps running and retries the serial port every second, so
   `systemctl status esp-feed` still says "active" while nothing is connected. Check `ls /dev/ttyACM*`.
 - There are no photos or screenshots yet.
