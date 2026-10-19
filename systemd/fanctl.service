@@ -1,0 +1,16 @@
+[Unit]
+Description=Temperature-curve fan controller with GPU-aware safety limits
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStartPre=-/sbin/modprobe nct6775
+ExecStart=/usr/bin/python3 /usr/local/bin/fanctl daemon
+ExecStopPost=/usr/bin/python3 /usr/local/bin/fanctl --restore
+Restart=always
+RestartSec=2
+StateDirectory=fanctl
+RuntimeDirectory=fanctl
+
+[Install]
+WantedBy=multi-user.target

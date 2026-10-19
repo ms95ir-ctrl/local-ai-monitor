@@ -1,0 +1,14 @@
+[Unit]
+Description=ESP32 control panel feed (GPU + LLM stats over USB serial)
+After=multi-user.target fanctl.service
+
+[Service]
+Type=simple
+# Change User, the install path and the serial port to match your machine.
+User=YOUR_USER
+ExecStart=/usr/bin/python3 -I /home/YOUR_USER/local-ai-monitor/host/p100_feed.py /dev/ttyACM0 http://127.0.0.1:8081
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
