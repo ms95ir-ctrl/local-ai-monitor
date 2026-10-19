@@ -16,8 +16,8 @@ The server side is the same for both. Only the firmware differs.
 | [`esp32-s3-st7796-480x320`](firmware/esp32-s3-st7796-480x320) | ESP32-S3 DevKitC-1 with a separate display | 480x320 ST7796, FT6336 touch, UART bridge USB | In daily use. |
 | [`es3c28p-320x240`](firmware/es3c28p-320x240) | LCDWIKI ES3C28P, all-in-one 2.8" board | 320x240 ILI9341V, FT6336 touch, native USB | Compiles. **Not yet tested on a real board.** |
 
-The second variant is a re-layout of the same three pages for the smaller screen. A 3D-printable case
-for it is in progress in [`case/`](case).
+The second variant is a re-layout of the same three pages for the smaller screen. A two-part
+3D-printable case for it, with the battery under the board, is in [`case/`](case).
 
 ```
  AI server (Linux)                                        ESP32-S3 + 480x320 TFT
@@ -55,7 +55,7 @@ is no flicker.
 | `host/fanctl.py` | Fan controller daemon with temperature curves and GPU-aware safety limits. |
 | `host/install_*.sh` | Installers that set up the two services under systemd. |
 | `systemd/` | The unit files, for reading or manual install. |
-| `case/` | OpenSCAD 3D-printable parts (work in progress, see `case/README.md`). |
+| `case/` | Two-part 3D-printable case for the ES3C28P variant (OpenSCAD, STL, checks). Designed, not yet printed. |
 
 ## Hardware
 
