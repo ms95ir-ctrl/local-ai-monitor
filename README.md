@@ -15,6 +15,7 @@ The server side is the same for both. Only the firmware differs.
 |---|---|---|---|
 | [`esp32-s3-st7796-480x320`](firmware/esp32-s3-st7796-480x320) | ESP32-S3 DevKitC-1 with a separate display | 480x320 ST7796, FT6336 touch, UART bridge USB | In daily use. |
 | [`es3c28p-320x240`](firmware/es3c28p-320x240) | LCDWIKI ES3C28P, all-in-one 2.8" board | 320x240 ILI9341V, FT6336 touch, native USB | Compiles. **Not yet tested on a real board.** |
+| [`es3c28p-wifi-320x240`](firmware/es3c28p-wifi-320x240) | Same board, battery-friendly | Same screen, plus a WiFi tab | Pick the network on the touchscreen; the board finds the host by itself. USB still works. |
 
 The second variant is a re-layout of the same three pages for the smaller screen. A two-part
 3D-printable case for it, with the battery under the board, is in [`case/`](case).
@@ -50,6 +51,7 @@ is no flicker.
 |---|---|
 | `firmware/esp32-s3-st7796-480x320/` | Firmware for the DevKitC + 480x320 display (PlatformIO, Arduino, TFT_eSPI). |
 | `firmware/es3c28p-320x240/` | Firmware for the LCDWIKI ES3C28P all-in-one board. |
+| `firmware/es3c28p-wifi-320x240/` | The ES3C28P firmware with an on-screen WiFi menu (data over WiFi instead of the USB cable). |
 | `firmware/tools/make_fonts.py` | Generates the smooth fonts header both variants use. |
 | `host/p100_feed.py` | Feeder service: GPU stats, llama-server stats and fan status to the ESP, and its fan commands back. |
 | `host/fanctl.py` | Fan controller daemon with temperature curves and GPU-aware safety limits. |

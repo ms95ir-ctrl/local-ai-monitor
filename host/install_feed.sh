@@ -5,7 +5,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 sudo tee /etc/systemd/system/esp-feed.service >/dev/null <<UNIT
 [Unit]
-Description=ESP32 control panel feed (P100 + LLM stats over USB serial)
+Description=ESP32 control panel feed (P100 + LLM stats over USB serial and WiFi)
 After=multi-user.target local-llm.service fanctl.service
 
 [Service]

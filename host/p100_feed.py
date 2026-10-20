@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-"""Feed the ESP32 dashboard over USB serial, ~1 update/second:
+"""Feed the ESP32 dashboard, ~4 updates/second, over USB serial and/or WiFi:
   P100,...  GPU stats from nvidia-smi
   LLM,...   llama-server stats from /slots and /metrics (read-only; never sends prompts)
 
+USB serial is optional: if the port is missing the feed keeps running for WiFi clients.
+WiFi: a TCP server on NET_PORT streams the same lines to connected boards and receives their SET,... commands.
+A UDP beacon ("ESPDASH,<port>,<hostname>") every 2 s on BEACON_PORT lets boards on the LAN find this machine.
+Only peers on private (LAN) addresses are accepted.
+
 usage: p100_feed.py [serial-port] [llama-server-url]
 """
-import json, re, subprocess, sys, threading, time, urllib.request
+import ipaddress, json, re, socket, subprocess, sys, threading, time, urllib.request
 import serial
+
+NET_PORT, BEACON_PORT = 8765, 8766
 
 PORT = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyACM0"
 LLAMA = sys.argv[2] if len(sys.argv) > 2 else "http://127.0.0.1:8081"
@@ -233,6 +240,99 @@ class Poller(threading.Thread):
             self.kick.wait(self.period); self.kick.clear()
 
 
+class NetHub:
+    """TCP side of the feed: streams lines to every connected board, collects their SET,... commands."""
+    def __init__(self, cmds):
+        self.cmds, self.clients, self.lock = cmds, [], threading.Lock()
+        srv = socket.socket()
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("", NET_PORT))
+        srv.listen(4)
+        self.srv = srv
+        threading.Thread(target=self.accept_loop, daemon=True).start()
+        threading.Thread(target=self.beacon_loop, daemon=True).start()
+
+    def accept_loop(self):
+        while True:
+            try:
+                c, addr = self.srv.accept()
+                if not ipaddress.ip_address(addr[0]).is_private:
+                    c.close()
+                    continue
+                c.settimeout(0.5)
+                c.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                with self.lock:
+                    self.clients.append(c)
+                print("net client", addr[0], flush=True)
+                threading.Thread(target=self.reader, args=(c, addr[0]), daemon=True).start()
+            except Exception as e:
+                print("accept error:", e, file=sys.stderr, flush=True)
+                time.sleep(1)
+
+    def reader(self, c, ip):
+        rx = b""
+        try:
+            while True:
+                try:
+                    chunk = c.recv(512)
+                except socket.timeout:
+                    continue
+                if not chunk:
+                    break
+                rx += chunk
+                while b"\n" in rx:
+                    ln, rx = rx.split(b"\n", 1)
+                    text = ln.decode(errors="replace")
+                    if text.startswith("SET,"):
+                        print("rx", text.strip(), "(wifi)", flush=True)
+                        self.cmds.append(text)
+        except OSError:
+            pass
+        self.drop(c)
+        print("net client gone", ip, flush=True)
+
+    def drop(self, c):
+        with self.lock:
+            if c in self.clients:
+                self.clients.remove(c)
+        try: c.close()
+        except OSError: pass
+
+    def send(self, data):
+        with self.lock:
+            clients = list(self.clients)
+        for c in clients:
+            try: c.sendall(data)
+            except OSError: self.drop(c)
+
+    @staticmethod
+    def broadcasts():
+        out = {"255.255.255.255"}
+        try:
+            for ifc in json.loads(subprocess.check_output(["ip", "-j", "-4", "addr"], text=True, timeout=3)):
+                if ifc["ifname"].startswith(("lo", "docker", "br-", "veth", "tailscale")):
+                    continue
+                for a in ifc.get("addr_info", []):
+                    if a.get("broadcast"):
+                        out.add(a["broadcast"])
+        except Exception:
+            pass
+        return out
+
+    def beacon_loop(self):
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        msg = f"ESPDASH,{NET_PORT},{socket.gethostname()}\n".encode()
+        targets, at = set(), 0
+        while True:
+            if time.time() - at > 30:  # interfaces come and go (WiFi roaming)
+                targets, at = self.broadcasts(), time.time()
+            for t in targets:
+                try: u.sendto(msg, (t, BEACON_PORT))
+                except OSError: pass
+            time.sleep(2)
+
+
 def main():
     gpu, llm = GpuSampler(), Llm()
     gpu.start()
@@ -240,6 +340,13 @@ def main():
     llm_p.start(); fan_p.start()
     lock = threading.Lock()
     cmds = []
+    net = NetHub(cmds)
+    ser, rx = None, b""
+
+    def emit(text):
+        data = text.encode()
+        net.send(data)
+        if ser: ser.write(data)
 
     def cmd_worker():
         while True:
@@ -248,31 +355,33 @@ def main():
             st = handle_command(text)
             if st:
                 with lock:
-                    try: ser.write(fan_line(st).encode())
+                    try: emit(fan_line(st))
                     except Exception: pass
             fan_p.kick.set()
-    ser, rx = None, b""
     threading.Thread(target=cmd_worker, daemon=True).start()
-    nxt, tick = time.time(), 0
+    nxt, tick, last_open = time.time(), 0, 0.0
     while True:
         try:
-            if ser is None:
-                ser = open_port()
+            if ser is None and time.time() - last_open > 2:  # USB is optional: keep serving WiFi clients without it
+                last_open = time.time()
+                try: ser = open_port()
+                except (serial.SerialException, OSError): ser = None
             line = gpu.line if gpu.line and time.time() - gpu.at < 2 else None
             with lock:
-                if line: ser.write(line.encode())
-                if tick % 2 == 0 and llm_p.line: ser.write(llm_p.line.encode())
-                if tick % 4 == 0 and fan_p.line: ser.write(fan_p.line.encode())
+                if line: emit(line)
+                if tick % 2 == 0 and llm_p.line: emit(llm_p.line)
+                if tick % 4 == 0 and fan_p.line: emit(fan_p.line)
             tick += 1
             nxt += 0.25
             while True:  # service touch-UI commands until the next tick
-                rx += ser.read(512)
-                while b"\n" in rx:
-                    ln, rx = rx.split(b"\n", 1)
-                    text = ln.decode(errors="replace")
-                    if text.startswith("SET,"):
-                        print("rx", text.strip(), flush=True)
-                        cmds.append(text)
+                if ser:
+                    rx += ser.read(512)
+                    while b"\n" in rx:
+                        ln, rx = rx.split(b"\n", 1)
+                        text = ln.decode(errors="replace")
+                        if text.startswith("SET,"):
+                            print("rx", text.strip(), flush=True)
+                            cmds.append(text)
                 if time.time() >= nxt: break
                 time.sleep(0.02)
             if nxt < time.time() - 1: nxt = time.time()  # fell far behind (suspend, etc.): resync
