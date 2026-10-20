@@ -20,6 +20,7 @@ USB keeps working at the same time: plug the cable in and the USB feed also upda
 - The board listens for it, then opens a TCP connection to port 8765 on the sender.
 - Over that connection the host sends the same `P100,` / `LLM,` / `FAN,` lines as over USB, and the board sends back
   `SET,...` fan commands.
+- If no beacon arrives within 6 s (some routers drop broadcasts), the board probes its own /24 for port 8765 instead.
 - If the host goes silent for 8 s the board drops the link and looks for the beacon again.
 
 The board and the host must be on the same local network (same subnet). Guest networks and some phone hotspots

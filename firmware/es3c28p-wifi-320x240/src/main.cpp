@@ -360,7 +360,8 @@ bool beaconOpen = false;
 IPAddress hostIp;
 uint16_t hostPort = 0;
 char hostName[24] = "";
-uint32_t lastHostTry = 0, lastLinkRx = 0;
+uint32_t lastHostTry = 0, lastLinkRx = 0, wifiUpAt = 0;
+constexpr uint16_t HOST_PORT_DEFAULT = 8765;
 
 char savedSsid[33] = "", savedPass[65] = "";
 bool joining = false;
@@ -489,9 +490,15 @@ void netLoop() {
   if (st != WL_CONNECTED) {
     if (beaconOpen) { beacon.stop(); beaconOpen = false; }
     hostLink.stop();
+    wifiUpAt = 0;
     return;
   }
+  if (!wifiUpAt) wifiUpAt = millis();
   if (!beaconOpen) { beacon.begin(BEACON_PORT); beaconOpen = true; }
+  // Broadcasts are often lost while the radio is in power-save: stay awake while searching, sleep once linked.
+  static bool awake = false;
+  bool searching = !hostLink.connected();
+  if (searching != awake) { awake = searching; WiFi.setSleep(!awake); }
 
   // host discovery
   int len = beacon.parsePacket();
@@ -509,6 +516,19 @@ void netLoop() {
   }
 
   if (!hostLink.connected()) {
+    // Fallback when no beacon arrives (AP drops broadcasts): probe the local /24 for the feed port, a few hosts per pass.
+    if (hostIp == IPAddress() && millis() - wifiUpAt > 6000) {
+      static int probe = 1;
+      uint32_t base = (uint32_t)WiFi.localIP() & (uint32_t)WiFi.subnetMask();
+      for (int k = 0; k < 4; k++) {
+        probe = probe % 254 + 1;
+        IPAddress ip(base | ((uint32_t)probe << 24));
+        if (ip == WiFi.localIP() || ip == WiFi.gatewayIP()) continue;
+        WiFiClient t;
+        if (t.connect(ip, HOST_PORT_DEFAULT, 60)) { t.stop(); hostIp = ip; hostPort = HOST_PORT_DEFAULT; hostName[0] = 0; break; }
+      }
+      return;
+    }
     if (hostIp != IPAddress() && millis() - lastHostTry > 3000) {
       lastHostTry = millis();
       if (hostLink.connect(hostIp, hostPort, 800)) {
