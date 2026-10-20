@@ -7,6 +7,20 @@ touch. A tiny Python feeder on the server sends the data over USB serial.
 It runs 24/7 on my AI box (Tesla P100 16 GB, llama.cpp). It is written for that machine, so expect to
 adapt the details (see [Adapting it](#adapting-it-to-your-machine)).
 
+## Quick install (host machine)
+
+On the machine that runs your models (Linux with systemd):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ms95ir-ctrl/local-ai-monitor/main/install.sh | sh
+```
+
+It detects the GPU, a local llama-server, a board on USB and the LAN, shows what it will do, asks, then installs the
+feed as a service. Add options after `sh -s --`, e.g. `| sh -s -- --dry-run` (detect only), `--yes` (no questions),
+`--llama-url http://127.0.0.1:8081`, `--with-fans` (optional fan controller), `--uninstall`. The script is
+[`install.sh`](install.sh) and the logic is in [`host/setup.py`](host/setup.py); read them before piping to a shell.
+Then flash a board ([`es3c28p-wifi-320x240`](firmware/es3c28p-wifi-320x240)) and pick your WiFi on its screen.
+
 ## Two hardware variants
 
 The server side is the same for both. Only the firmware differs.

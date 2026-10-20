@@ -45,6 +45,7 @@ struct Fans {
 uint32_t lastFanRx = 0, lastUserFan = 0;
 bool haveFan = false;
 
+char gpuName[32] = "GPU";  // set by the host (GPUN line)
 uint8_t histUtil[HIST], histTemp[HIST];
 int histLen = 0;
 uint32_t lastGpuRx = 0, lastLlmRx = 0;
@@ -153,8 +154,16 @@ void tabs() {
 // ---------- pages ----------
 void pageGpu() {
   bool live = haveGpu && millis() - lastGpuRx < 3500;
-  text("Tesla P100", 10, 16, F_TITLE, TEXT, ML_DATUM);
-  text("16 GB  \xC2\xB7  PCIe", 10 + twidth("Tesla P100", F_TITLE) + 8, 19, F_BODY, DIM, ML_DATUM);
+  char gt[32], gsub[16];
+  strlcpy(gt, gpuName, sizeof gt);
+  snprintf(gsub, sizeof gsub, "%d GB", (gpu.memTotalMiB + 512) / 1024);
+  int gavail = W - 8 - pillWidth("NO DATA") - 10 - 10;
+  if (twidth(gt, F_TITLE) + 8 + twidth(gsub, F_BODY) > gavail) {  // long names: drop the size, then cut the name
+    gsub[0] = 0;
+    while (strlen(gt) > 1 && twidth(gt, F_TITLE) > gavail) gt[strlen(gt) - 1] = 0;
+  }
+  text(gt, 10, 16, F_TITLE, TEXT, ML_DATUM);
+  if (gsub[0]) text(gsub, 10 + twidth(gt, F_TITLE) + 8, 19, F_BODY, DIM, ML_DATUM);
   if (live) pill(W - 8, 5, "LIVE", GREEN, mix(BG, GREEN, 40));
   else pill(W - 8, 5, "NO DATA", RED, mix(BG, RED, 40));
 
@@ -811,6 +820,12 @@ void onLine(const char *line) {
     }
     lastGpuRx = millis();
     haveGpu = true;
+  } else if (!strncmp(line, "GPUN,", 5)) {
+    const char *nm = line + 5;
+    if (!strncmp(nm, "NVIDIA ", 7)) nm += 7;
+    if (!strncmp(nm, "GeForce ", 8)) nm += 8;
+    if (!*nm) return;
+    strlcpy(gpuName, nm, sizeof gpuName);
   } else if (!strncmp(line, "LLM,", 4)) {
     Llm n = llm;
     char quant[16] = "", model[40] = "";

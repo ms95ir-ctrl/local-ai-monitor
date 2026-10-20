@@ -8,14 +8,19 @@ WiFi: a TCP server on NET_PORT streams the same lines to connected boards and re
 A UDP beacon ("ESPDASH,<port>,<hostname>") every 2 s on BEACON_PORT lets boards on the LAN find this machine.
 Only peers on private (LAN) addresses are accepted.
 
-usage: p100_feed.py [serial-port] [llama-server-url]
+usage: p100_feed.py [serial-port|auto|none] [llama-server-url]
+  auto (default): use the first Espressif USB serial device found, if any.  none: WiFi only.
 """
-import ipaddress, json, re, socket, subprocess, sys, threading, time, urllib.request
-import serial
+import glob, ipaddress, json, re, shutil, socket, subprocess, sys, threading, time, urllib.request
+try:
+    import serial
+    SerialException = serial.SerialException
+except ImportError:  # pyserial is only needed for the USB cable; WiFi works without it
+    serial, SerialException = None, OSError
 
 NET_PORT, BEACON_PORT = 8765, 8766
 
-PORT = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyACM0"
+PORT = sys.argv[1] if len(sys.argv) > 1 else "auto"
 LLAMA = sys.argv[2] if len(sys.argv) > 2 else "http://127.0.0.1:8081"
 FIELDS = "temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,power.limit,clocks.sm,clocks.mem"
 
@@ -27,6 +32,15 @@ def num(s, default="0"):
         return s
     except ValueError:
         return default
+
+
+def gpu_name_line():
+    """GPUN,<name>: lets the screen title show the real card instead of a fixed name."""
+    try:
+        out = subprocess.check_output(["nvidia-smi", "-i", "0", "--query-gpu=name", "--format=csv,noheader"], text=True, timeout=5)
+        return "GPUN," + out.strip().splitlines()[0].replace(",", " ") + "\n"
+    except Exception:
+        return None
 
 
 def gpu_line():
@@ -198,9 +212,19 @@ def handle_command(line):
     return None
 
 
+def find_port():
+    if PORT not in ("auto", ""):
+        return PORT
+    found = sorted(glob.glob("/dev/serial/by-id/*Espressif*")) or sorted(glob.glob("/dev/ttyACM*"))
+    return found[0] if found else None
+
+
 def open_port():
+    port = None if serial is None or PORT == "none" else find_port()
+    if not port:
+        raise OSError("no USB serial board")
     s = serial.Serial()
-    s.port, s.baudrate, s.timeout = PORT, 115200, 0
+    s.port, s.baudrate, s.timeout = port, 115200, 0
     s.dtr = s.rts = False  # avoid pulsing EN/BOOT and resetting the board
     s.open()
     return s
@@ -213,6 +237,8 @@ class GpuSampler(threading.Thread):
         self.line, self.at = None, 0.0
 
     def run(self):
+        if not shutil.which("nvidia-smi"):
+            return  # no NVIDIA GPU: the GPU page just shows NO DATA
         while True:
             try:
                 p = subprocess.Popen(["nvidia-smi", "-i", "0", f"--query-gpu={FIELDS}", "--format=csv,noheader,nounits", "-lms", "200"],
@@ -338,6 +364,7 @@ def main():
     gpu.start()
     llm_p, fan_p = Poller(llm.line, 0.5), Poller(fan_line, 1.0)
     llm_p.start(); fan_p.start()
+    gpun = gpu_name_line()
     lock = threading.Lock()
     cmds = []
     net = NetHub(cmds)
@@ -365,12 +392,13 @@ def main():
             if ser is None and time.time() - last_open > 2:  # USB is optional: keep serving WiFi clients without it
                 last_open = time.time()
                 try: ser = open_port()
-                except (serial.SerialException, OSError): ser = None
+                except (SerialException, OSError): ser = None
             line = gpu.line if gpu.line and time.time() - gpu.at < 2 else None
             with lock:
                 if line: emit(line)
                 if tick % 2 == 0 and llm_p.line: emit(llm_p.line)
                 if tick % 4 == 0 and fan_p.line: emit(fan_p.line)
+                if tick % 8 == 0 and gpun: emit(gpun)
             tick += 1
             nxt += 0.25
             while True:  # service touch-UI commands until the next tick
@@ -385,7 +413,7 @@ def main():
                 if time.time() >= nxt: break
                 time.sleep(0.02)
             if nxt < time.time() - 1: nxt = time.time()  # fell far behind (suspend, etc.): resync
-        except (serial.SerialException, OSError):
+        except (SerialException, OSError):
             ser = None
             time.sleep(1); nxt = time.time()
         except Exception as e:
