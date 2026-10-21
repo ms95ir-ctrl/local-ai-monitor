@@ -71,7 +71,7 @@ is no flicker.
 | `host/fanctl.py` | Fan controller daemon with temperature curves and GPU-aware safety limits. |
 | `host/install_*.sh` | Installers that set up the two services under systemd. |
 | `systemd/` | The unit files, for reading or manual install. |
-| `case/` | Two-part 3D-printable case for the ES3C28P variant (OpenSCAD, STL, checks). Designed, not yet printed. |
+| `case/` | Thin two-part 3D-printable case for the ES3C28P (board only, USB powered, 14.4 mm; OpenSCAD, STL, checks). Designed, not yet printed. |
 
 ## Hardware
 
