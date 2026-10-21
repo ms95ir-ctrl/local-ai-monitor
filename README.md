@@ -32,7 +32,7 @@ The server side is the same for both. Only the firmware differs.
 | [`es3c28p-wifi-320x240`](firmware/es3c28p-wifi-320x240) | Same board, battery-friendly | Same screen, plus a WiFi tab | Pick the network on the touchscreen; the board finds the host by itself. USB still works. |
 
 The second variant is a re-layout of the same three pages for the smaller screen. A two-part
-3D-printable case for it, with the battery under the board, is in [`case/`](case).
+3D-printable case for it, is in [`case/`](case).
 
 ```
  AI server (Linux)                                        ESP32-S3 + 480x320 TFT
